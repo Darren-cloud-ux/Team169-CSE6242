@@ -122,12 +122,14 @@ selected_category = st.sidebar.selectbox(
 # Filter dataframe to the selected category only
 df_filtered = df[df["branded_food_category"] == selected_category].copy()
 
-# Deduplicate by brand_name within this category (keep first)
-if "brand_name" in df_filtered.columns:
-    df_filtered = df_filtered.dropna(subset=["brand_name"])
+# ------------------------------------
+# Deduplicate by DESCRIPTION in this category (keep first)
+# ------------------------------------
+if "description" in df_filtered.columns:
+    df_filtered = df_filtered.dropna(subset=["description"])
     df_filtered = (
-        df_filtered.sort_values("brand_name")
-        .drop_duplicates(subset=["brand_name"], keep="first")
+        df_filtered.sort_values("description")
+        .drop_duplicates(subset=["description"], keep="first")
     )
 
 # -----------------------------
@@ -161,21 +163,21 @@ y_axis = st.sidebar.selectbox(
 # -----------------------------
 plot_df = df_filtered.dropna(subset=[x_axis, y_axis]).copy()
 
-# Ensure hover fields are strings – include brand_name now
+# Ensure hover fields are strings – include description now
 hover_fields = [
-    c for c in ["brand_name", "description", "branded_food_category", "nutriscore"]
+    c for c in ["description", "brand_name", "branded_food_category", "nutriscore"]
     if c in plot_df.columns
 ]
 for c in hover_fields:
     plot_df[c] = plot_df[c].astype("string").fillna("N/A")
 
-# Color by brand_name instead of description
-color_col = "brand_name" if "brand_name" in plot_df.columns else None
+# Color by description instead of brand_name
+color_col = "description" if "description" in plot_df.columns else None
 
 # -----------------------------
 # Scatter Plot
 # -----------------------------
-st.subheader("📊 Comparison of Nutrient Density (per Brand)")
+st.subheader("📊 Comparison of Nutrient Density (per Product Description)")
 
 if plot_df.empty:
     st.warning("No data available for the selected filters and nutrients.")
@@ -186,7 +188,7 @@ else:
         y=y_axis,
         color=color_col,
         hover_data=hover_fields,
-        title=f"{selected_category}: {x_axis} vs {y_axis} (one point per brand)",
+        title=f"{selected_category}: {x_axis} vs {y_axis} (one point per description)",
     )
 
     fig.update_layout(
@@ -197,27 +199,27 @@ else:
     st.plotly_chart(fig, use_container_width=True)
 
 # -----------------------------
-# Brand-level Nutrient Bar Chart
+# Item-level Nutrient Bar Chart
 # -----------------------------
-st.subheader("🍽️ Nutrient Profile for Selected Brand")
+st.subheader("🍽️ Nutrient Profile for Selected Item")
 
-if "brand_name" not in df_filtered.columns or df_filtered.empty:
-    st.info("No brand data available for this category.")
+if "description" not in df_filtered.columns or df_filtered.empty:
+    st.info("No description data available for this category.")
 else:
-    # Brand selector is now in the MAIN AREA, just above the chart
-    brand_options = sorted(df_filtered["brand_name"].dropna().unique().tolist())
-    selected_brand = st.selectbox(
-        "Select Brand for Nutrient Profile",
-        options=brand_options,
-        key="brand_bar_select",
+    # Selector in MAIN AREA – use description
+    description_options = sorted(df_filtered["description"].dropna().unique().tolist())
+    selected_description = st.selectbox(
+        "Select Item (Description) for Nutrient Profile",
+        options=description_options,
+        key="description_bar_select",
     )
 
-    brand_row = df_filtered[df_filtered["brand_name"] == selected_brand]
-    if brand_row.empty:
-        st.warning("No data found for the selected brand.")
+    item_row = df_filtered[df_filtered["description"] == selected_description]
+    if item_row.empty:
+        st.warning("No data found for the selected item.")
     else:
-        # take first row (we already deduped, so should be exactly one)
-        brand_row = brand_row.iloc[0]
+        # take first row (we already deduped by description, so should be exactly one)
+        item_row = item_row.iloc[0]
 
         nutrient_cols = [
             "protein", "fat_total", "saturated_fat", "carbohydrates", "sugars",
@@ -230,7 +232,7 @@ else:
         nutrient_values = []
         for c in nutrient_cols:
             try:
-                nutrient_values.append(float(brand_row[c]))
+                nutrient_values.append(float(item_row[c]))
             except Exception:
                 nutrient_values.append(None)
 
@@ -239,13 +241,13 @@ else:
         ).dropna(subset=["Value"])
 
         if bar_df.empty:
-            st.info("No numeric nutrient values available for this brand.")
+            st.info("No numeric nutrient values available for this item.")
         else:
             fig_bar = px.bar(
                 bar_df,
                 x="Nutrient",
                 y="Value",
-                title=f"Nutrient Profile: {selected_brand}",
+                title=f"Nutrient Profile: {selected_description}",
             )
             fig_bar.update_layout(
                 xaxis_tickangle=-45,
@@ -255,9 +257,9 @@ else:
             st.plotly_chart(fig_bar, use_container_width=True)
 
 # -----------------------------
-# Nutri-Score Table Summary (by brand_name)
+# Nutri-Score Table Summary (by description)
 # -----------------------------
-st.subheader("🥦 Brands Grouped by Nutri-Score")
+st.subheader("🥦 Items Grouped by Nutri-Score")
 
 if "nutriscore" not in df_filtered.columns:
     st.warning("Column 'nutriscore' not found in the filtered dataset.")
@@ -279,10 +281,18 @@ else:
         for score in unique_scores:
             st.markdown(f"### Nutri-Score {score}")
 
-            # Show brand names grouped under this score
+            # Show descriptions grouped under this score
+            cols_to_show = []
+            # Always include description if present
+            if "description" in df_filtered.columns:
+                cols_to_show.append("description")
+            # Optionally also show brand_name for extra context
+            if "brand_name" in df_filtered.columns:
+                cols_to_show.append("brand_name")
+
             subset = (
-                df_filtered[df_filtered["nutriscore"] == score][["brand_name"]]
-                .dropna()
+                df_filtered[df_filtered["nutriscore"] == score][cols_to_show]
+                .dropna(subset=["description"])
                 .drop_duplicates()
                 .reset_index(drop=True)
             )
@@ -290,7 +300,7 @@ else:
             if subset.empty:
                 st.write("No items found.")
             else:
-                # Full width table so brand names do NOT get squeezed
+                # Full width table so descriptions do NOT get squeezed
                 st.dataframe(
                     subset,
                     height=min(300, 40 * len(subset)),  # auto-adjust height
